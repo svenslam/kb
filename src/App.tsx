@@ -52,6 +52,7 @@ import {
 } from './constants';
 
 const STEPS = [
+  { id: 'cable-info', title: 'Kabel Info', icon: Layers },
   { id: 'load', title: 'Belasting', icon: Zap },
   { id: 'protection', title: 'Beveiliging', icon: Shield },
   { id: 'installation', title: 'Installatie', icon: Settings },
@@ -79,7 +80,9 @@ export default function App() {
     cableLength: 20,
     earthingSystem: 'TN',
     hasRCD: true,
-    earthResistance: 1.5
+    earthResistance: 1.5,
+    existingSection: '',
+    numberOfCores: ''
   });
 
   const [expandedSummary, setExpandedSummary] = useState({
@@ -109,7 +112,9 @@ export default function App() {
       cableLength: 20,
       earthingSystem: 'TN',
       hasRCD: true,
-      earthResistance: 1.5
+      earthResistance: 1.5,
+      existingSection: '',
+      numberOfCores: ''
     });
   };
 
@@ -150,8 +155,8 @@ export default function App() {
     const sortedSections = Object.keys(table).map(Number).sort((a, b) => a - b);
     
     // Select minimal section that satisfies BOTH Current Capacity AND Voltage Drop (<5%)
-    let selectedSection = sortedSections[sortedSections.length - 1];
-    let currentOnlySection = selectedSection;
+    let calculatedSection = sortedSections[sortedSections.length - 1];
+    let currentOnlySection = calculatedSection;
     const rho = 0.0175;
     const dropFactor = state.phases === 1 ? 2 : Math.sqrt(3);
 
@@ -170,12 +175,26 @@ export default function App() {
       const vDropPerc = vDrop / state.voltage;
 
       if (capacity >= reqItab && vDropPerc <= 0.05) {
-        selectedSection = section;
+        calculatedSection = section;
         break;
       }
     }
 
+    // Use existing section if provided, otherwise use calculated
+    const manualSection = parseFloat(state.existingSection?.replace(',', '.') || '');
+    const isManual = !isNaN(manualSection) && manualSection > 0;
+    const selectedSection = isManual ? manualSection : calculatedSection;
+
     const voltageDrop = (dropFactor * state.cableLength * IB * rho) / selectedSection;
+
+    // Capacity check for selected section (manual or auto)
+    // Find capacity of the selected section (if not in table, find nearest lower)
+    const exactCapacity = table[selectedSection] ? table[selectedSection][phaseIdx] : (() => {
+      const lower = [...sortedSections].reverse().find(s => s <= selectedSection);
+      return lower ? table[lower][phaseIdx] : 0;
+    })();
+
+    const isInsufficientCapacity = exactCapacity < reqItab;
 
     // Short circuit max length (Table 53.F) / Fault protection (TT)
     let maxSC = undefined;
@@ -240,6 +259,7 @@ export default function App() {
       maxShortCircuitLength: maxSC,
       isShortCircuitExceeded: isExceeded,
       isOverloaded: IB > state.protectionCurrent,
+      isInsufficientCapacity: isInsufficientCapacity,
       references: {
         operatingCurrent: 'NEN 1010:2020 311',
         protection: 'NEN 1010:2020 433.1',
@@ -323,6 +343,58 @@ export default function App() {
             <AnimatePresence mode="wait">
               {currentStep === 0 && (
                 <motion.div
+                  key="step-cable"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="space-y-8 max-w-2xl mx-auto"
+                >
+                  <h2 className="text-[11px] font-bold text-text-dim uppercase tracking-widest flex items-center gap-2">
+                    <Layers size={14} className="text-accent" />
+                    1. Kabel Informatie
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-3">
+                      <label className="text-sm font-medium text-text-main font-mono uppercase tracking-tight">Handmatige Controle (Optioneel)</label>
+                      <div className="p-1 bg-bg-input rounded-xl border border-border">
+                        <div className="p-4 space-y-4">
+                          <div className="space-y-2">
+                            <label className="text-[10px] text-text-dim uppercase font-bold">Bestaande Doorsnede</label>
+                            <input 
+                              type="text" 
+                              placeholder="Bijv. 2.5 mm²" 
+                              value={state.existingSection}
+                              onChange={(e) => updateState({ existingSection: e.target.value })}
+                              className="w-full bg-bg-panel border border-border rounded-lg px-4 py-3 text-sm focus:border-accent outline-none text-white"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[10px] text-text-dim uppercase font-bold">Aderaantal</label>
+                            <input 
+                              type="text" 
+                              placeholder="Bijv. 3G or 5x" 
+                              value={state.numberOfCores}
+                              onChange={(e) => updateState({ numberOfCores: e.target.value })}
+                              className="w-full bg-bg-panel border border-border rounded-lg px-4 py-3 text-sm focus:border-accent outline-none text-white"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col justify-center gap-4 p-6 bg-accent/5 rounded-2xl border border-accent/10">
+                      <h3 className="text-xs font-bold text-accent uppercase flex items-center gap-2">
+                        <Info size={14} /> Waarom invullen?
+                      </h3>
+                      <p className="text-xs text-text-dim leading-relaxed italic">
+                        Vul dit in als je een bestaande kabel wilt controleren tegen de NEN 1010-normen. De berekening geeft nog steeds de minimale vereiste aan, maar je kunt dan direct vergelijken in het rapport.
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {currentStep === 1 && (
+                <motion.div
                   key="step0"
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -331,7 +403,7 @@ export default function App() {
                 >
                   <h2 className="text-[11px] font-bold text-text-dim uppercase tracking-widest flex items-center gap-2">
                     <Zap size={14} className="text-accent" />
-                    1. Belasting & Fase
+                    2. Belasting & Fase
                   </h2>
                   
                   <div className="grid grid-cols-2 gap-3 bg-bg-input p-1 rounded-xl border border-border">
@@ -383,7 +455,7 @@ export default function App() {
                 </motion.div>
               )}
 
-              {currentStep === 1 && (
+              {currentStep === 2 && (
                 <motion.div
                   key="step1"
                   initial={{ opacity: 0, y: 10 }}
@@ -393,7 +465,7 @@ export default function App() {
                 >
                   <h2 className="text-[11px] font-bold text-text-dim uppercase tracking-widest flex items-center gap-2">
                     <Shield size={14} className="text-accent" />
-                    2. Beveiliging
+                    3. Beveiliging
                   </h2>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -476,7 +548,7 @@ export default function App() {
                 </motion.div>
               )}
 
-              {currentStep === 2 && (
+              {currentStep === 3 && (
                 <motion.div
                   key="step2"
                   initial={{ opacity: 0, y: 10 }}
@@ -486,7 +558,7 @@ export default function App() {
                 >
                   <h2 className="text-[11px] font-bold text-text-dim uppercase tracking-widest flex items-center gap-2">
                     <Settings size={14} className="text-accent" />
-                    3. Installatie & Omgeving
+                    4. Installatie & Omgeving
                   </h2>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -678,7 +750,7 @@ export default function App() {
                 </motion.div>
               )}
 
-              {currentStep === 3 && (
+              {currentStep === 4 && (
                 <motion.div
                   key="step3"
                   initial={{ opacity: 0, scale: 0.98 }}
@@ -687,16 +759,23 @@ export default function App() {
                 >
                   <h2 className="text-[11px] font-bold text-text-dim uppercase tracking-widest flex items-center gap-2 px-2">
                     <CheckCircle2 size={14} className="text-accent" />
-                    4. Resultaat & Validatie
+                    5. Resultaat & Validatie
                   </h2>
 
                   <div className="bg-bg-panel border-2 border-dashed border-accent/40 rounded-3xl p-12 text-center shadow-2xl shadow-accent/5 relative overflow-hidden">
                     <div className="relative z-10">
-                      <div className="text-[10px] font-bold text-accent uppercase tracking-[0.2em] mb-4">Aanbevolen Doorsnede</div>
+                      <div className="text-[10px] font-bold text-accent uppercase tracking-[0.2em] mb-4">
+                        {parseFloat(state.existingSection || '') > 0 ? 'Gecontroleerde Doorsnede' : 'Geadviseerde Doorsnede'}
+                      </div>
                       <div className="text-8xl font-black text-accent tracking-tighter flex items-center justify-center gap-2">
                         {results.selectedCrossSection}
                         <span className="text-2xl font-light text-text-dim">mm²</span>
                       </div>
+                      {results.isInsufficientCapacity && (
+                        <div className="mt-2 text-[10px] bg-error/20 text-error px-3 py-1 rounded-full border border-error/30 inline-block font-bold">
+                          AFGEKEURD: Te weining stroombelastbaarheid (I_z)
+                        </div>
+                      )}
                       {results.isOverloaded && (
                         <div className="mt-2 text-[10px] bg-error/20 text-error px-3 py-1 rounded-full border border-error/30 inline-block font-bold">
                           WAARSCHUWING: Bedrijfsstroom hoger dan beveiliging!
@@ -762,7 +841,7 @@ export default function App() {
               )}
             </AnimatePresence>
             <AnimatePresence>
-              {currentStep === 3 && (
+              {currentStep === 4 && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
@@ -855,6 +934,17 @@ export default function App() {
                   <div className="text-xs font-bold font-mono">Belasting</div>
                   <div className={`text-[10px] ${results.isOverloaded ? 'text-error font-bold' : 'text-text-dim'}`}>
                     {results.isOverloaded ? 'Overbelast: IB > In' : 'I_B ≤ I_n'}
+                  </div>
+                </div>
+              </div>
+              <div className={`flex items-center gap-4 p-4 bg-bg-panel border rounded-xl ${results.isInsufficientCapacity ? 'border-error/50 bg-error/5' : 'border-border'}`}>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] ${results.isInsufficientCapacity ? 'bg-error text-white' : 'bg-success text-white'}`}>
+                  {results.isInsufficientCapacity ? 'X' : '✓'}
+                </div>
+                <div>
+                  <div className="text-xs font-bold font-mono">Stroombelastbaarheid</div>
+                  <div className={`text-[10px] ${results.isInsufficientCapacity ? 'text-error font-bold' : 'text-text-dim'}`}>
+                    {results.isInsufficientCapacity ? 'Doorsnede te klein voor I_Z' : 'Capaciteit voldoet'}
                   </div>
                 </div>
               </div>
@@ -963,8 +1053,6 @@ export default function App() {
                     </div>
                     <div className="text-sm text-gray-500 space-y-1">
                       <div className="flex items-center gap-2 font-medium text-gray-800"><MapPin size={14} />Uitgeest, Nederland</div>
-                      <div>NEN 1010 Specialist</div>
-                      <div>Telefoon: [Bedrijfsnummer]</div>
                     </div>
                   </div>
                   <div className="bg-gray-50 p-6 rounded-xl border border-gray-100 flex-1 space-y-4">
@@ -992,6 +1080,32 @@ export default function App() {
                           className="w-full bg-transparent border-b border-gray-200 outline-none focus:border-accent text-sm print:border-none"
                         />
                       </div>
+
+                      <div className="pt-2 border-t border-gray-100 mt-2 space-y-4">
+                        <h4 className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">Controle Bestaande Kabel</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="group">
+                            <label className="text-[10px] text-gray-400 uppercase block mb-1">Bestaande Doorsnede</label>
+                            <input 
+                              type="text" 
+                              placeholder="Bijv. 4 mm²" 
+                              value={state.existingSection}
+                              onChange={(e) => updateState({ existingSection: e.target.value })}
+                              className="w-full bg-transparent border-b border-gray-200 outline-none focus:border-accent text-sm print:border-none"
+                            />
+                          </div>
+                          <div className="group">
+                            <label className="text-[10px] text-gray-400 uppercase block mb-1">Aderaantal</label>
+                            <input 
+                              type="text" 
+                              placeholder="Bijv. 3G of 5x" 
+                              value={state.numberOfCores}
+                              onChange={(e) => updateState({ numberOfCores: e.target.value })}
+                              className="w-full bg-transparent border-b border-gray-200 outline-none focus:border-accent text-sm print:border-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -999,7 +1113,9 @@ export default function App() {
                 {/* Main Result */}
                 <div className="bg-accent text-white p-6 sm:p-8 rounded-3xl flex flex-col sm:flex-row justify-between items-center gap-6 relative overflow-hidden">
                   <div className="relative z-10 text-center sm:text-left">
-                    <div className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-2">Geadviseerde Aderdoorsnede</div>
+                    <div className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-2">
+                      {parseFloat(state.existingSection || '') > 0 ? 'Gecontroleerde Aderdoorsnede' : 'Geadviseerde Aderdoorsnede'}
+                    </div>
                     <div className="text-6xl sm:text-7xl font-black tracking-tighter flex items-center justify-center sm:justify-start gap-2">
                        {results.selectedCrossSection}
                        <span className="text-xl font-light opacity-50">mm²</span>
@@ -1008,6 +1124,11 @@ export default function App() {
                   <div className="text-right space-y-2 relative z-10">
                     <div className="text-lg font-bold">Koper (Cu)</div>
                     <div className="text-sm opacity-60">{state.insulationType} Isolatie</div>
+                    {results.isInsufficientCapacity && (
+                      <div className="text-[10px] font-bold text-white uppercase bg-red-600 px-2 py-1 rounded inline-block">
+                        Te lage capaciteit (Iz)
+                      </div>
+                    )}
                     {results.isOverloaded && (
                       <div className="text-[10px] font-bold text-white uppercase bg-red-600 px-2 py-1 rounded inline-block animate-pulse">
                         Systeem Overbelast
@@ -1133,7 +1254,7 @@ export default function App() {
                           </div>
                         </div>
                         <div className="mt-4 p-4 bg-accent/5 rounded-xl border border-accent/10 text-[11px] text-accent/80 italic leading-relaxed">
-                          Alle berekeningen zijn uitgevoerd conform NEN 1010:2020. De resultaten zijn gebaseerd op een TN-stelsel bij een nominale spanning van 230V/400V.
+                          Alle berekeningen zijn uitgevoerd conform NEN 1010:2020. De resultaten zijn gebaseerd op een {state.earthingSystem}-stelsel bij een nominale spanning van 230V/400V.
                         </div>
                       </div>
                     </motion.div>

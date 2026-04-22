@@ -13,6 +13,8 @@ export interface CalculationState {
   earthingSystem: 'TN' | 'TT';
   hasRCD: boolean;
   earthResistance?: number;
+  existingSection?: string;
+  numberOfCores?: string;
 }
 
 export interface Result {
@@ -27,6 +29,7 @@ export interface Result {
   maxShortCircuitLength?: number;
   isShortCircuitExceeded: boolean;
   isOverloaded: boolean;
+  isInsufficientCapacity: boolean;
   references?: {
     operatingCurrent: string;
     protection: string;
