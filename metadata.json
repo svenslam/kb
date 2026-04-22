@@ -1,0 +1,6 @@
+{
+  "name": "Kabeldikte Calculator NEN 1010",
+  "description": "Een professionele tool voor het berekenen van kabeldoorsneden volgens de NEN 1010:2015 norm, inclusief correctiefactoren en veiligheidscontroles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
